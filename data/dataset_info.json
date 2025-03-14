@@ -2,8 +2,22 @@
   "identity": {
     "file_name": "identity.json"
   },
-  "our_cot": {
-    "file_name": "our_cot.json",
+  "our_cot_train": {
+    "file_name": "train_cot_chat.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "our_cot_valid": {
+    "file_name": "test_cot_chat.json",
     "formatting": "sharegpt",
     "columns": {
       "messages": "messages"

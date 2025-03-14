@@ -71,7 +71,7 @@ def convert_format(train_path, test_path, train_output, test_output):
                 messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
-                    {"role": "user", "content": "<None>"},
+                    {"role": "assistant", "content": "<None>"},
                 ]
             data = {
                 "messages": messages
@@ -80,8 +80,8 @@ def convert_format(train_path, test_path, train_output, test_output):
         return process_fn
     
     
-    train_dataset = raw_train_dataset.map(function=make_map_fn('train'), with_indices=True)
-    test_dataset = raw_test_dataset.map(function=make_map_fn('test'), with_indices=True)
+    train_dataset = raw_train_dataset.map(function=make_map_fn('train'), with_indices=True, remove_columns=raw_train_dataset.column_names)
+    test_dataset = raw_test_dataset.map(function=make_map_fn('test'), with_indices=True, remove_columns=raw_test_dataset.column_names)
     train_data = train_dataset.to_list()
     test_data = test_dataset.to_list()
     with open(train_output, "w", encoding="utf-8") as write_file:

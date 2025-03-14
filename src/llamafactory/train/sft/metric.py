@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import torch
+import re
 from transformers.utils import is_jieba_available, is_nltk_available
 
 from ...extras.constants import IGNORE_INDEX
@@ -130,5 +131,98 @@ class ComputeSimilarity:
             bleu_score = sentence_bleu([list(label)], list(pred), smoothing_function=SmoothingFunction().method3)
             self.score_dict["bleu-4"].append(round(bleu_score * 100, 4))
 
+        if compute_result:
+            return self._dump()
+
+
+
+@dataclass
+class ComputeLeanScore:
+    r"""Compute text similarity scores and support `batch_eval_metrics`.
+
+    Wraps the tokenizer into metric functions, used in CustomSeq2SeqTrainer.
+    """
+
+    tokenizer: "PreTrainedTokenizer"
+    local_rank: int
+    world_size: int
+    ray_address: str
+
+    def _dump(self) -> Optional[dict[str, float]]:
+        result = None
+        if hasattr(self, "score_dict"):
+            result = {
+                "accuracy": float(np.mean(self.score_dict['accuracy'])),
+                "corr": float(np.sum(self.score_dict['accuracy'])),
+                "total": len(self.score_dict['accuracy'])
+            }
+
+
+        self.score_dict = {"accuracy": []}
+        return result
+
+    def __post_init__(self):
+        self._dump()
+
+    def obtain_program(self, input_text, output_text):
+        formal_program = input_text + output_text
+        lines = formal_program.split('\n')
+        start = 0
+        end = len(lines)
+        for idx, line in enumerate(lines):
+            if line.startswith("```lean"): #and start != -1:
+                start = idx
+            elif line.startswith("```"):
+                end = idx
+                break
+        lines = lines[start+1:end]
+        
+        lines = [line for line in lines if not line.startswith('import ')]
+        lines = [line for line in lines if not line.startswith('set_option ')]
+        lines = [line for line in lines if not line.startswith('open ')]
+        
+        # extract the theorem without the proof steps.
+        current_theorem = "\n".join(lines)
+        # remove empty lines
+        current_theorem = "\n".join([line for line in current_theorem.split('\n') if line.strip() != ""])
+        # replace the theorem with example
+        example = re.sub('theorem [\w.]*', 'example ', current_theorem) # normalize
+        return example
+    
+    def __call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[dict[str, float]]:
+        inputs = numpify(eval_preds.inputs)
+        preds = numpify(eval_preds.predictions)
+        
+        inputs = np.where(inputs != IGNORE_INDEX, inputs, self.tokenizer.eos_token_id)
+        preds = np.where(preds != IGNORE_INDEX, preds, self.tokenizer.eos_token_id)
+        try:
+            input_texts = self.tokenizer.batch_decode(inputs, skip_special_tokens=True)
+            output_texts = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
+        except:
+            print(inputs)
+            print(preds)
+            exit(0)
+        
+        # deduplicate the items by input_text
+        all_data = []
+        unique_input_texts = set()
+        for idx, (input_text, output_text) in enumerate(zip(input_texts, output_texts)):
+            if input_text in unique_input_texts:
+                continue
+            else:
+                unique_input_texts.add(input_text)
+                all_data.append((input_text, output_text))
+        
+        # obtain the complete program
+        if self.local_rank == 0:
+            complete_programs = [self.obtain_program(input_text, output_text) for input_text, output_text in all_data]
+            rewards = run_lean_code(complete_programs, address=self.ray_address)
+            # print(rewards)
+            for rew in rewards:
+                self.score_dict['accuracy'].append(1 if rew else 0)
+        else:
+            for _ in range(len(all_data)):
+                self.score_dict['accuracy'].append(0)
+        
         if compute_result:
             return self._dump()

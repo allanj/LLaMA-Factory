@@ -120,7 +120,11 @@ class LoraArguments:
         default=False,
         metadata={"help": "Whether or not to create a new adapter with randomly initialized weight."},
     )
-
+    
+    ray_address: str = field(
+        default=None,
+        metadata={"help": "The ray address for training, used when we want to generate during predict"}
+    )
 
 @dataclass
 class RLHFArguments:
